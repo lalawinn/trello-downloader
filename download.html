@@ -32,6 +32,8 @@
 
 <script>
   var APP_KEY = '6ad8d209bae01b2d381ca357d8072e1b';
+  // Paste your Cloudflare Worker address here, e.g. https://trello-image-helper.yourname.workers.dev
+  var WORKER_URL = 'https://trello-image-helper.lana-winnichyn.workers.dev';
   var t = TrelloPowerUp.iframe({ appKey: APP_KEY, appName: 'Image Downloader' });
 
   var btn = document.getElementById('go');
@@ -85,14 +87,12 @@
   }
 
   async function fetchAttachment(cardId, a, token) {
-    if (a.isUpload) {
-      var url = 'https://api.trello.com/1/cards/' + cardId + '/attachments/' + a.id +
-                '/download/' + encodeURIComponent(a.name);
-      var res = await fetch(url, {
-        headers: { Authorization: 'OAuth oauth_consumer_key="' + APP_KEY + '", oauth_token="' + token + '"' }
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.blob();
+    if (a.isUpload && WORKER_URL.indexOf('http') === 0) {
+      var u = WORKER_URL.replace(/\/$/, '') + '/?card=' + encodeURIComponent(cardId) +
+              '&att=' + encodeURIComponent(a.id) + '&name=' + encodeURIComponent(a.name);
+      var r = await fetch(u, { headers: { 'X-Trello-Key': APP_KEY, 'X-Trello-Token': token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.blob();
     }
     // Linked (non-uploaded) image: fetch directly from its own website.
     var res2 = await fetch(a.url);
