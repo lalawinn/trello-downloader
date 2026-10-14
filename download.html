@@ -38,7 +38,7 @@
   var t = TrelloPowerUp.iframe({ appKey: APP_KEY, appName: 'Image Downloader' });
 
   var btn = document.getElementById('go');
-  document.getElementById('ver').textContent = 'Version 5 - helper ' + (WORKER_URL.indexOf('http') === 0 ? 'set' : 'NOT set');
+  document.getElementById('ver').textContent = 'Version 6 - helper ' + (WORKER_URL.indexOf('http') === 0 ? 'set' : 'NOT set');
   var statusEl = document.getElementById('status');
   var barWrap = document.getElementById('bar-wrap');
   var bar = document.getElementById('bar');
@@ -89,7 +89,10 @@
   }
 
   async function fetchAttachment(cardId, a, token) {
-    if (a.isUpload && WORKER_URL.indexOf('http') === 0) {
+    var host = '';
+    try { host = new URL(a.url).hostname; } catch (e) {}
+    var isTrelloFile = a.isUpload === true || /(^|\.)trello\.com$/.test(host) || /trello-attachments|trello-backgrounds/.test(a.url || '');
+    if (isTrelloFile && WORKER_URL.indexOf('http') === 0) {
       var u = WORKER_URL.replace(/\/$/, '') + '/?card=' + encodeURIComponent(cardId) +
               '&att=' + encodeURIComponent(a.id) + '&name=' + encodeURIComponent(a.name);
       var r;
@@ -102,7 +105,9 @@
       return r.blob();
     }
     // Linked (non-uploaded) image: fetch directly from its own website.
-    var res2 = await fetch(a.url);
+    var res2;
+    try { res2 = await fetch(a.url); }
+    catch (e) { throw new Error('direct fetch blocked for ' + (host || 'unknown host') + ' (isUpload=' + a.isUpload + ')'); }
     if (!res2.ok) throw new Error('HTTP ' + res2.status);
     return res2.blob();
   }
