@@ -16,6 +16,10 @@
     #fallback { display: none; margin-top: 6px; }
     a { color: #0c66e4; }
     .err { color: #ae2a19; }
+    label { display: block; font-weight: 600; margin: 2px 0 4px; }
+    #prefix { width: 100%; padding: 7px 8px; font-size: 14px; border: 2px solid #8590a2; border-radius: 3px; font-family: inherit; color: #172b4d; }
+    #prefix:focus { outline: none; border-color: #0c66e4; }
+    #example { color: #6b778c; font-size: 12px; margin: 4px 0 10px; word-break: break-all; }
     #list { display: none; margin-top: 8px; max-height: 140px; overflow-y: auto; }
     #list a { display: block; padding: 3px 0; word-break: break-all; }
     #seq { display: none; margin-top: 8px; background: #fff; color: #0c66e4; border: 1px solid #0c66e4; }
@@ -23,6 +27,9 @@
   </style>
 </head>
 <body>
+  <label for="prefix">File name</label>
+  <input id="prefix" type="text" autocomplete="off" spellcheck="false">
+  <div id="example"></div>
   <button id="go">Download all images</button>
   <div id="bar-wrap"><div id="bar"></div></div>
   <div id="status">Click the button to bundle every image on this card into one zip file.</div>
@@ -38,7 +45,7 @@
   var t = TrelloPowerUp.iframe({ appKey: APP_KEY, appName: 'Image Downloader' });
 
   var btn = document.getElementById('go');
-  document.getElementById('ver').textContent = 'Version 6';
+  document.getElementById('ver').textContent = 'Version 8';
   var statusEl = document.getElementById('status');
   var barWrap = document.getElementById('bar-wrap');
   var bar = document.getElementById('bar');
@@ -152,6 +159,38 @@
     t.sizeTo('body').catch(function () {});
   }
 
+  // ---- File naming: "Card-Title-" + number + original extension ----
+  var prefixEl = document.getElementById('prefix');
+  var exampleEl = document.getElementById('example');
+
+  function slugTitle(name) {
+    var slug = String(name || '').replace(/['\u2019]/g, '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+    // Title case: capitalise the first letter of each word, leave the rest as typed (so SEO stays SEO)
+    slug = slug.split('-').map(function (w) { return w.charAt(0).toLocaleUpperCase() + w.slice(1); }).join('-');
+    return slug ? slug + '-' : '';
+  }
+  function extOf(a) {
+    var m = /\.([A-Za-z0-9]{2,5})(?:\?.*)?$/.exec(a.name || '');
+    if (m) return '.' + m[1];
+    var mt = (a.mimeType || '').split('/')[1];
+    return mt ? '.' + (mt === 'jpeg' ? 'jpg' : mt.replace('svg+xml', 'svg')) : '';
+  }
+  function builtName(prefix, a, n) { return safeName(prefix) + n + extOf(a); }
+  var firstExt = '.jpeg';
+  function updateExample() {
+    var p = prefixEl.value;
+    exampleEl.textContent = p.trim()
+      ? 'Example: ' + builtName(p, { name: 'x' + firstExt }, 1) + ', ' + builtName(p, { name: 'x' + firstExt }, 2) + '...'
+      : 'Empty: files keep their original names (numbered if the same).';
+  }
+  prefixEl.addEventListener('input', updateExample);
+  t.card('name', 'attachments').then(function (c) {
+    prefixEl.value = slugTitle(c.name);
+    var first = (c.attachments || []).filter(isImage)[0];
+    if (first) firstExt = extOf(first) || firstExt;
+    updateExample();
+  }).catch(function () { updateExample(); });
+
   async function run() {
     btn.disabled = true;
     fallback.style.display = 'none';
@@ -184,7 +223,8 @@
         setProgress(i, images.length);
         try {
           var blob = await fetchAttachment(card.id, a, token);
-          zip.file(nameFor(a.name), blob);
+          var typed = prefixEl.value.trim();
+          zip.file(typed ? builtName(prefixEl.value, a, i + 1) : nameFor(a.name), blob);
         } catch (e) {
           failed.push({ att: a, reason: e.message });
         }
