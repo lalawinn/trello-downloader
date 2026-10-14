@@ -16,6 +16,10 @@
     #fallback { display: none; margin-top: 6px; }
     a { color: #0c66e4; }
     .err { color: #ae2a19; }
+    #list { display: none; margin-top: 8px; max-height: 140px; overflow-y: auto; }
+    #list a { display: block; padding: 3px 0; word-break: break-all; }
+    #seq { display: none; margin-top: 8px; background: #fff; color: #0c66e4; border: 1px solid #0c66e4; }
+    #seq:hover { background: #e9f2ff; }
   </style>
 </head>
 <body>
@@ -23,6 +27,8 @@
   <div id="bar-wrap"><div id="bar"></div></div>
   <div id="status">Click the button to bundle every image on this card into one zip file.</div>
   <div id="fallback"></div>
+  <button id="seq">Download images one by one</button>
+  <div id="list"></div>
 
 <script>
   var APP_KEY = '6ad8d209bae01b2d381ca357d8072e1b';
@@ -94,9 +100,51 @@
     return res2.blob();
   }
 
+  // Fallback: the browser blocked the zip method, so download each image
+  // using the person's own Trello login (same as the Download option on a card).
+  function showIndividual(images) {
+    setStatus('Trello blocked bundling these into a zip, so use one-by-one download instead. ' +
+              'Your browser may ask to allow multiple downloads. Click Allow.', false);
+    var seq = document.getElementById('seq');
+    var list = document.getElementById('list');
+    seq.style.display = 'block';
+    list.style.display = 'block';
+    list.innerHTML = '';
+    images.forEach(function (a, i) {
+      var link = document.createElement('a');
+      link.href = a.url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = (i + 1) + '. ' + a.name;
+      list.appendChild(link);
+    });
+    seq.onclick = function () {
+      seq.disabled = true;
+      var n = 0;
+      (function next() {
+        if (n >= images.length) {
+          setStatus('Started ' + images.length + ' download' + (images.length === 1 ? '' : 's') +
+                    '. If some did not arrive, click the links below one at a time.');
+          seq.disabled = false;
+          return;
+        }
+        var frame = document.createElement('iframe');
+        frame.style.display = 'none';
+        frame.src = images[n].url;
+        document.body.appendChild(frame);
+        n++;
+        setStatus('Starting download ' + n + ' of ' + images.length + '...');
+        setTimeout(next, 900);
+      })();
+    };
+    t.sizeTo('body').catch(function () {});
+  }
+
   async function run() {
     btn.disabled = true;
     fallback.style.display = 'none';
+    document.getElementById('seq').style.display = 'none';
+    document.getElementById('list').style.display = 'none';
     barWrap.style.display = 'none';
     bar.style.width = '0';
 
@@ -133,7 +181,8 @@
 
       var okCount = images.length - failed.length;
       if (okCount === 0) {
-        throw new Error('None of the images could be downloaded (' + failed[0].reason + '). Copy this message and send it to Claude.');
+        showIndividual(images);
+        return;
       }
 
       setStatus('Creating zip file...');
