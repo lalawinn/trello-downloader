@@ -8,6 +8,7 @@
 <body>
 <script>
   var ICON = 'https://lalawinn.github.io/trello-downloader/icon.svg';
+  var CAL_ICON = 'https://lalawinn.github.io/trello-downloader/calendar-icon.svg';
 
   TrelloPowerUp.initialize({
     'card-buttons': function (t) {
@@ -19,6 +20,19 @@
             title: 'Download all images',
             url: './download.html?v=6',
             height: 260
+          });
+        }
+      }];
+    },
+    'board-buttons': function (t) {
+      return [{
+        icon: { dark: CAL_ICON, light: CAL_ICON },
+        text: 'Calendar',
+        callback: function (t) {
+          return t.modal({
+            title: 'Team calendar',
+            url: './calendar.html?v=1',
+            fullscreen: true
           });
         }
       }];

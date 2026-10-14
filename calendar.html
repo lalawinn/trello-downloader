@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team calendar</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <style>
+    :root { --ink: #172b4d; --muted: #6b778c; --line: #dfe1e6; --bg: #ffffff; --today: #0c66e4; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); font-size: 13px; display: flex; flex-direction: column; }
+
+    header { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; flex-wrap: wrap; }
+    header h1 { font-size: 20px; margin: 0 12px 0 0; font-weight: 600; min-width: 170px; }
+    .nav button { background: #f1f2f4; color: var(--ink); border: 0; border-radius: 3px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+    .nav button:hover { background: #dcdfe4; }
+    .spacer { flex: 1; }
+
+    #legend { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 10px; }
+    .key { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 12px; padding: 3px 10px 3px 6px; font-size: 12px; cursor: pointer; }
+    .key .dot { width: 12px; height: 12px; border-radius: 3px; }
+    .key.off { opacity: .45; text-decoration: line-through; }
+
+    #status { padding: 0 16px 8px; color: var(--muted); }
+    #status.err { color: #ae2a19; }
+
+    #wrap { flex: 1; overflow: auto; padding: 0 16px 16px; }
+    .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+    .dow { padding: 6px 8px; font-weight: 600; color: var(--muted); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fafbfc; }
+    .cell { min-height: 112px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 4px 0 6px; position: relative; }
+    .cell.other .num { opacity: .5; }
+    .num { padding: 0 8px 4px; font-weight: 600; font-size: 12px; }
+    .num span { display: inline-block; min-width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 11px; }
+    .cell.today .num span { background: var(--today); color: #fff; }
+
+    .chip { display: block; width: 100%; height: 20px; line-height: 20px; margin: 0 0 3px; padding: 0 6px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border: 0; text-align: left; font-family: inherit; }
+    .chip.first { margin-left: 4px; width: calc(100% - 4px); border-radius: 4px 0 0 4px; }
+    .chip.last { width: calc(100% - 4px); border-radius: 0 4px 4px 0; }
+    .chip.first.last { border-radius: 4px; }
+    .chip.first:not(.last) { width: calc(100% - 4px); }
+    .chip.done { opacity: .6; }
+    .chip.done span { text-decoration: line-through; }
+    .chip:hover { filter: brightness(.94); }
+    .chip:focus-visible { outline: 2px solid var(--today); outline-offset: 1px; }
+
+    @media (max-width: 700px) { .cell { min-height: 80px; } .chip { font-size: 11px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title"></h1>
+    <div class="nav">
+      <button id="prev" aria-label="Previous month">&lsaquo;</button>
+      <button id="today">Today</button>
+      <button id="next" aria-label="Next month">&rsaquo;</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="nav"><button id="refresh">Refresh</button></div>
+  </header>
+  <div id="legend"></div>
+  <div id="status">Loading cards...</div>
+  <div id="wrap"><div class="grid" id="grid"></div></div>
+
+<script>
+  var APP_KEY = '6ad8d209bae01b2d381ca357d8072e1b';
+
+  // ---- Colors (Trello label names -> hex) ----
+  var COLORS = {
+    green: '#4bce97', green_light: '#baf3db', green_dark: '#1f845a',
+    yellow: '#e2b203', yellow_light: '#f8e6a0', yellow_dark: '#946f00',
+    orange: '#faa53d', orange_light: '#fedec8', orange_dark: '#c25100',
+    red: '#f87168', red_light: '#ffd5d2', red_dark: '#c9372c',
+    purple: '#9f8fef', purple_light: '#dfd8fd', purple_dark: '#6e5dc6',
+    blue: '#579dff', blue_light: '#cce0ff', blue_dark: '#0c66e4',
+    sky: '#6cc3e0', sky_light: '#c6edfb', sky_dark: '#227d9b',
+    lime: '#94c748', lime_light: '#d3f1a7', lime_dark: '#5b7f24',
+    pink: '#e774bb', pink_light: '#fdd0ec', pink_dark: '#ae4787',
+    black: '#8590a2', black_light: '#dcdfe4', black_dark: '#44546f'
+  };
+  var NO_LABEL = '#8590a2';
+
+  function hexToRgb(h) {
+    h = h.replace('#', '');
+    return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)];
+  }
+  function rgba(hex, a) { var c = hexToRgb(hex); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+  function textOn(hex) {
+    var c = hexToRgb(hex);
+    var lum = (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255;
+    return lum > 0.62 ? '#172b4d' : '#ffffff';
+  }
+
+  // ---- Dates ----
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function key(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function dayOf(iso) { var d = new Date(iso); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  // Start dates may be stored as UTC midnight; read those by their UTC date so they don't slip a day.
+  function startDayOf(iso) {
+    var d = new Date(iso);
+    if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
+      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    }
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  function eventRange(card) {
+    var s = card.start ? startDayOf(card.start) : null;
+    var e = card.due ? dayOf(card.due) : null;
+    if (!s && !e) return null;
+    if (!s) s = e;
+    if (!e || e < s) e = s;
+    return { start: s, end: e };
+  }
+
+  function primaryLabel(card) {
+    var ls = card.labels || [];
+    for (var i = 0; i < ls.length; i++) if (ls[i].color) return ls[i];
+    return null;
+  }
+  function labelKey(l) { return l ? (l.color + '|' + (l.name || '')) : 'none'; }
+  function labelHex(l) { return l ? (COLORS[l.color] || NO_LABEL) : NO_LABEL; }
+  function chipHex(l) {
+    if (!l) return NO_LABEL;
+    var dark = COLORS[l.color.split('_')[0] + '_dark'];
+    return COLORS[l.color] && l.color.indexOf('_') > -1 ? COLORS[l.color] : (dark || COLORS[l.color] || NO_LABEL);
+  }
+
+  // ---- UI ----
+  var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var t = TrelloPowerUp.iframe({ appKey: APP_KEY, appName: 'Image Downloader' });
+
+  var events = [];           // {card, range, label}
+  var hidden = {};           // labelKey -> true
+  var view = new Date(); view.setDate(1);
+
+  var elTitle = document.getElementById('title');
+  var elGrid = document.getElementById('grid');
+  var elLegend = document.getElementById('legend');
+  var elStatus = document.getElementById('status');
+
+  function setStatus(msg, isErr) { elStatus.textContent = msg; elStatus.className = isErr ? 'err' : ''; elStatus.style.display = msg ? '' : 'none'; }
+
+  async function load() {
+    setStatus('Loading cards...');
+    try {
+      var cards = await t.cards('all');
+      events = [];
+      cards.forEach(function (c) {
+        if (c.closed) return;
+        var r = eventRange(c);
+        if (!r) return;
+        events.push({ card: c, range: r, label: primaryLabel(c) });
+      });
+      events.sort(function (a, b) {
+        return (a.range.start - b.range.start) || (b.range.end - a.range.end) || String(a.card.name).localeCompare(String(b.card.name));
+      });
+      setStatus(events.length ? '' : 'No cards with a start or due date yet. Add dates to a card and it will show up here.');
+      render();
+    } catch (err) {
+      console.error(err);
+      setStatus('Could not load cards: ' + (err && err.message ? err.message : err), true);
+    }
+  }
+
+  function renderLegend() {
+    var seen = {}, list = [];
+    events.forEach(function (ev) {
+      var k = labelKey(ev.label);
+      if (!seen[k]) { seen[k] = true; list.push({ k: k, label: ev.label }); }
+    });
+    elLegend.innerHTML = '';
+    list.forEach(function (it) {
+      var b = document.createElement('button');
+      b.className = 'key' + (hidden[it.k] ? ' off' : '');
+      b.type = 'button';
+      var dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = chipHex(it.label);
+      var name = it.label ? (it.label.name || it.label.color) : 'No label';
+      b.appendChild(dot);
+      b.appendChild(document.createTextNode(name));
+      b.title = 'Click to show or hide';
+      b.onclick = function () { hidden[it.k] = !hidden[it.k]; render(); };
+      elLegend.appendChild(b);
+    });
+  }
+
+  function render() {
+    elTitle.textContent = MONTHS[view.getMonth()] + ' ' + view.getFullYear();
+    renderLegend();
+
+    var first = new Date(view.getFullYear(), view.getMonth(), 1);
+    var gridStart = new Date(first); gridStart.setDate(1 - first.getDay());
+    var daysInMonth = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+    var weeks = Math.ceil((first.getDay() + daysInMonth) / 7);
+    var gridEnd = new Date(gridStart); gridEnd.setDate(gridStart.getDate() + weeks * 7 - 1);
+
+    // Which events cover which day
+    var byDay = {};
+    events.forEach(function (ev) {
+      if (hidden[labelKey(ev.label)]) return;
+      if (ev.range.end < gridStart || ev.range.start > gridEnd) return;
+      var d = new Date(Math.max(ev.range.start, gridStart));
+      var stop = new Date(Math.min(ev.range.end, gridEnd));
+      var guard = 0;
+      while (d <= stop && guard++ < 400) {
+        var k = key(d);
+        (byDay[k] = byDay[k] || []).push(ev);
+        d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+      }
+    });
+
+    elGrid.innerHTML = '';
+    DOW.forEach(function (n) { var h = document.createElement('div'); h.className = 'dow'; h.textContent = n; elGrid.appendChild(h); });
+
+    var todayKey = key(new Date());
+    for (var i = 0; i < weeks * 7; i++) {
+      var day = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+      var k = key(day);
+      var cell = document.createElement('div');
+      cell.className = 'cell' + (day.getMonth() !== view.getMonth() ? ' other' : '') + (k === todayKey ? ' today' : '');
+      var evs = byDay[k] || [];
+
+      // Tint the whole day with the label colour(s) at 25% opacity
+      if (evs.length) {
+        var seenTint = {}, tints = [];
+        evs.forEach(function (ev) {
+          var h = labelHex(ev.label);
+          if (!seenTint[h]) { seenTint[h] = true; tints.push(rgba(h, 0.25)); }
+        });
+        if (tints.length === 1) cell.style.background = tints[0];
+        else {
+          var stops = tints.map(function (c, idx) {
+            var a = Math.round(idx * 100 / tints.length), b = Math.round((idx + 1) * 100 / tints.length);
+            return c + ' ' + a + '%, ' + c + ' ' + b + '%';
+          });
+          cell.style.background = 'linear-gradient(135deg, ' + stops.join(', ') + ')';
+        }
+      }
+
+      var num = document.createElement('div');
+      num.className = 'num';
+      var sp = document.createElement('span');
+      sp.textContent = day.getDate();
+      num.appendChild(sp);
+      cell.appendChild(num);
+
+      evs.forEach(function (ev) {
+        var isFirst = key(ev.range.start) === k;
+        var isLast = key(ev.range.end) === k;
+        var showText = isFirst || day.getDay() === 0 || i === 0;
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        var hex = chipHex(ev.label);
+        chip.className = 'chip' + (isFirst ? ' first' : '') + (isLast ? ' last' : '') + (ev.card.dueComplete ? ' done' : '');
+        chip.style.background = hex;
+        chip.style.color = textOn(hex);
+        var lbl = document.createElement('span');
+        lbl.textContent = showText ? ev.card.name : ' ';
+        chip.appendChild(lbl);
+        chip.title = ev.card.name + ' (' + key(ev.range.start) + (key(ev.range.start) !== key(ev.range.end) ? ' to ' + key(ev.range.end) : '') + ')';
+        chip.onclick = function () { t.showCard(ev.card.id); };
+        cell.appendChild(chip);
+      });
+      elGrid.appendChild(cell);
+    }
+  }
+
+  document.getElementById('prev').onclick = function () { view = new Date(view.getFullYear(), view.getMonth() - 1, 1); render(); };
+  document.getElementById('next').onclick = function () { view = new Date(view.getFullYear(), view.getMonth() + 1, 1); render(); };
+  document.getElementById('today').onclick = function () { view = new Date(); view.setDate(1); render(); };
+  document.getElementById('refresh').onclick = load;
+
+  load();
+</script>
+</body>
+</html>
