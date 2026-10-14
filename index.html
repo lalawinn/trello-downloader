@@ -9,6 +9,7 @@
 <script>
   var ICON = 'https://lalawinn.github.io/trello-downloader/icon.svg';
   var CAL_ICON = 'https://lalawinn.github.io/trello-downloader/calendar-icon.svg';
+  var CAL_ICON_WHITE = 'https://lalawinn.github.io/trello-downloader/calendar-icon-white.svg';
 
   TrelloPowerUp.initialize({
     'card-buttons': function (t) {
@@ -26,7 +27,7 @@
     },
     'board-buttons': function (t) {
       return [{
-        icon: { dark: CAL_ICON, light: CAL_ICON },
+        icon: { dark: CAL_ICON_WHITE, light: CAL_ICON },
         text: 'Calendar',
         callback: function (t) {
           return t.modal({
