@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Image Downloader connector</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body>
+<script>
+  var ICON = 'https://lalawinn.github.io/trello-downloader/icon.svg';
+
+  TrelloPowerUp.initialize({
+    'card-buttons': function (t) {
+      return [{
+        icon: ICON,
+        text: 'Download All Images',
+        callback: function (t) {
+          return t.popup({
+            title: 'Download all images',
+            url: './download.html',
+            height: 190
+          });
+        }
+      }];
+    }
+  }, {
+    appKey: '6ad8d209bae01b2d381ca357d8072e1b',
+    appName: 'Image Downloader'
+  });
+</script>
+</body>
+</html>

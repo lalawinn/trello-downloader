@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Download all images</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; color: #172b4d; margin: 0; padding: 8px; }
+    button { background: #0c66e4; color: #fff; border: 0; border-radius: 3px; padding: 8px 14px; font-size: 14px; cursor: pointer; width: 100%; }
+    button:hover { background: #0055cc; }
+    button:disabled { background: #a5adba; cursor: default; }
+    #bar-wrap { background: #dfe1e6; border-radius: 3px; height: 8px; margin: 12px 0 6px; overflow: hidden; display: none; }
+    #bar { background: #0c66e4; height: 100%; width: 0; transition: width .2s; }
+    #status { margin: 6px 0; line-height: 1.4; }
+    #fallback { display: none; margin-top: 6px; }
+    a { color: #0c66e4; }
+    .err { color: #ae2a19; }
+  </style>
+</head>
+<body>
+  <button id="go">Download all images</button>
+  <div id="bar-wrap"><div id="bar"></div></div>
+  <div id="status">Click the button to bundle every image on this card into one zip file.</div>
+  <div id="fallback"></div>
+
+<script>
+  var APP_KEY = '6ad8d209bae01b2d381ca357d8072e1b';
+  var t = TrelloPowerUp.iframe({ appKey: APP_KEY, appName: 'Image Downloader' });
+
+  var btn = document.getElementById('go');
+  var statusEl = document.getElementById('status');
+  var barWrap = document.getElementById('bar-wrap');
+  var bar = document.getElementById('bar');
+  var fallback = document.getElementById('fallback');
+
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? 'err' : '';
+    t.sizeTo('body').catch(function () {});
+  }
+
+  function setProgress(done, total) {
+    barWrap.style.display = 'block';
+    bar.style.width = Math.round((done / total) * 100) + '%';
+  }
+
+  function isImage(a) {
+    if (a.mimeType && a.mimeType.indexOf('image/') === 0) return true;
+    return /\.(png|jpe?g|gif|webp|bmp|svg|heic|tiff?)(\?.*)?$/i.test(a.url || a.name || '');
+  }
+
+  function safeName(name) {
+    return (name || 'image').replace(/[\\/:*?"<>|]/g, '_');
+  }
+
+  // Keep every filename unique inside the zip: photo.jpg, 2-photo.jpg, ...
+  function makeNamer() {
+    var used = {};
+    return function (name) {
+      var base = safeName(name);
+      if (!used[base]) { used[base] = 1; return base; }
+      var n = ++used[base];
+      var candidate = n + '-' + base;
+      while (used[candidate]) { n++; candidate = n + '-' + base; }
+      used[candidate] = 1;
+      return candidate;
+    };
+  }
+
+  async function getToken() {
+    var api = t.getRestApi();
+    var authorized = await api.isAuthorized();
+    if (!authorized) {
+      // Must be called from a click, so this runs inside the button handler.
+      await api.authorize({ scope: 'read', expiration: 'never' });
+    }
+    return api.getToken();
+  }
+
+  async function fetchAttachment(cardId, a, token) {
+    if (a.isUpload) {
+      var url = 'https://api.trello.com/1/cards/' + cardId + '/attachments/' + a.id +
+                '/download/' + encodeURIComponent(a.name);
+      var res = await fetch(url, {
+        headers: { Authorization: 'OAuth oauth_consumer_key="' + APP_KEY + '", oauth_token="' + token + '"' }
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.blob();
+    }
+    // Linked (non-uploaded) image: fetch directly from its own website.
+    var res2 = await fetch(a.url);
+    if (!res2.ok) throw new Error('HTTP ' + res2.status);
+    return res2.blob();
+  }
+
+  async function run() {
+    btn.disabled = true;
+    fallback.style.display = 'none';
+    barWrap.style.display = 'none';
+    bar.style.width = '0';
+
+    try {
+      setStatus('Checking Trello access...');
+      var token = await getToken();
+      if (!token) throw new Error('Trello did not give this Power-Up access. Click the button to try again.');
+
+      var card = await t.card('id', 'name', 'attachments');
+      var images = (card.attachments || []).filter(isImage);
+
+      if (!images.length) {
+        setStatus('No images found on this card.');
+        btn.disabled = false;
+        return;
+      }
+
+      var zip = new JSZip();
+      var nameFor = makeNamer();
+      var failed = [];
+
+      for (var i = 0; i < images.length; i++) {
+        var a = images[i];
+        setStatus('Downloading ' + (i + 1) + ' of ' + images.length + ': ' + a.name);
+        setProgress(i, images.length);
+        try {
+          var blob = await fetchAttachment(card.id, a, token);
+          zip.file(nameFor(a.name), blob);
+        } catch (e) {
+          failed.push({ att: a, reason: e.message });
+        }
+      }
+      setProgress(images.length, images.length);
+
+      var okCount = images.length - failed.length;
+      if (okCount === 0) {
+        throw new Error('None of the images could be downloaded (' + failed[0].reason + '). Copy this message and send it to Claude.');
+      }
+
+      setStatus('Creating zip file...');
+      var out = await zip.generateAsync({ type: 'blob' });
+      var zipName = safeName(card.name) + ' - images.zip';
+      var href = URL.createObjectURL(out);
+
+      var link = document.createElement('a');
+      link.href = href;
+      link.download = zipName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      var msg = 'Done. ' + okCount + ' image' + (okCount === 1 ? '' : 's') + ' zipped.';
+      if (failed.length) {
+        msg += ' ' + failed.length + ' could not be downloaded: ' +
+               failed.map(function (f) { return f.att.name; }).join(', ') + '.';
+      }
+      setStatus(msg, failed.length > 0);
+
+      fallback.style.display = 'block';
+      fallback.innerHTML = 'Download did not start? <a id="manual" href="' + href +
+                           '" download="' + zipName.replace(/"/g, '') + '">Save the zip</a>';
+    } catch (err) {
+      console.error(err);
+      setStatus('Something went wrong: ' + (err && err.message ? err.message : err), true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  btn.addEventListener('click', run);
+  t.render(function () { t.sizeTo('body'); });
+</script>
+</body>
+</html>
