@@ -27,6 +27,7 @@
   <div id="bar-wrap"><div id="bar"></div></div>
   <div id="status">Click the button to bundle every image on this card into one zip file.</div>
   <div id="fallback"></div>
+  <div id="ver" style="margin-top:10px;font-size:11px;color:#6b778c;"></div>
   <button id="seq">Download images one by one</button>
   <div id="list"></div>
 
@@ -37,6 +38,7 @@
   var t = TrelloPowerUp.iframe({ appKey: APP_KEY, appName: 'Image Downloader' });
 
   var btn = document.getElementById('go');
+  document.getElementById('ver').textContent = 'Version 5 - helper ' + (WORKER_URL.indexOf('http') === 0 ? 'set' : 'NOT set');
   var statusEl = document.getElementById('status');
   var barWrap = document.getElementById('bar-wrap');
   var bar = document.getElementById('bar');
@@ -90,8 +92,13 @@
     if (a.isUpload && WORKER_URL.indexOf('http') === 0) {
       var u = WORKER_URL.replace(/\/$/, '') + '/?card=' + encodeURIComponent(cardId) +
               '&att=' + encodeURIComponent(a.id) + '&name=' + encodeURIComponent(a.name);
-      var r = await fetch(u, { headers: { 'X-Trello-Key': APP_KEY, 'X-Trello-Token': token } });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var r;
+      try {
+        r = await fetch(u, { headers: { 'X-Trello-Key': APP_KEY, 'X-Trello-Token': token } });
+      } catch (e) {
+        throw new Error('could not reach the helper (' + e.message + ')');
+      }
+      if (!r.ok) throw new Error('helper answered HTTP ' + r.status);
       return r.blob();
     }
     // Linked (non-uploaded) image: fetch directly from its own website.
@@ -182,6 +189,7 @@
       var okCount = images.length - failed.length;
       if (okCount === 0) {
         showIndividual(images);
+        setStatus('The zip step failed: ' + failed[0].reason + '. Please send this message to Claude.', true);
         return;
       }
 
